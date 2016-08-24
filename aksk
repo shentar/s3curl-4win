@@ -1,0 +1,8 @@
+%awsSecretAccessKeys = (
+    # personal account
+    t => {
+        id => 'ABCDEFG',
+        key => 'ABCDEFGHIJKL',
+    },
+);
+
