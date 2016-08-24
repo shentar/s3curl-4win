@@ -270,7 +270,7 @@ if (defined $createBucket) {
     # copy operation is a special kind of PUT operation where the resource to put
     # is specified in the header
     push @args, ("-X", "PUT");
-    push @args, ("-H", "x-amz-copy-source: $copySourceObject");
+    push @args, ("-H", "\"x-amz-copy-source: $copySourceObject\"");
 } elsif (defined $postBody) {
     if (length($postBody)>0) {
         push @args, ("-T", $postBody);
