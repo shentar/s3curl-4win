@@ -59,6 +59,8 @@ my $copySourceObject;
 my $copySourceRange;
 my $postBody;
 my $calculateContentMD5 = 0;
+my $proxy;
+my $proxytunnel;
 
 my $DOTFILENAME="aksk";
 my $EXECFILE=$FindBin::Bin;
@@ -99,6 +101,8 @@ GetOptions(
     'help' => \$help,
     'debug' => \$debug,
     'calculateContentMd5' => \$calculateContentMD5,
+    'proxy=s' => \$proxy,
+    'proxytunnel=s' => \$proxytunnel,
 );
 
 my $usage = <<USAGE;
@@ -116,6 +120,8 @@ Usage $0 --id friendly-name (or AWSAccessKeyId) [options] -- [curl-options] [URL
   --createBucket [<region>]   create-bucket with optional location constraint
   --head                      HEAD request
   --debug                     enable debug logging
+  --proxy <proxyhost:port>    Proxy Host to utilize
+  --proxytunnel <host:port>   Proxy Host to use CONNECT proxy tunnel with  
  common curl options:
   -H 'x-amz-acl: public-read' another way of using canned ACLs
   -v                          verbose logging
@@ -190,13 +196,14 @@ for (my $i=0; $i<@ARGV; $i++) {
             $resource = "/";
         }
         my @attributes = ();
-        for my $attribute ("acl", "delete", "location", "logging", "notification",
+        for my $attribute ("acl", "cors", "delete", "location", "logging", "notification",
             "partNumber", "policy", "requestPayment", "response-cache-control",
             "response-content-disposition", "response-content-encoding", "response-content-language",
             "response-content-type", "response-expires", "torrent",
             "uploadId", "uploads", "versionId", "versioning", "versions", "website", "lifecycle") {
-            if ($query =~ /(?:^|&)($attribute(?:=[^&]*)?)(?:&|$)/) {
-                push @attributes, uri_unescape($1);
+            if ($query =~ /(?:^|&)($attribute)=?([^&]+)?(?:&|$)/) {
+                my $kv_pair = sprintf("%s%s", $1, $2 ? sprintf("=%s", $2) : '');
+                push @attributes, uri_unescape($kv_pair);
             }
         }
         if (@attributes) {
@@ -236,9 +243,10 @@ foreach (sort (keys %xamzHeaders)) {
     $xamzHeadersToSign .= "$_:$headerValue\n";
 }
 
-my $date = &getTime(time()); 
-my $httpDate = "$date->{wday}, $date->{day} $date->{month} $date->{year} $date->{hour}:$date->{minute}:$date->{second} +0000";
+#my $date = &getTime(time()); 
+#my $httpDate = "$date->{wday}, $date->{day} $date->{month} $date->{year} $date->{hour}:$date->{minute}:$date->{second} +0000";
 #my $httpDate = POSIX::strftime("%a, %d %b %Y %H:%M:%S +0000", gmtime );
+my $httpDate = (defined $xamzHeaders{'x-amz-date'}) ? '' : getCanonDateTime();
 my $stringToSign = "$method\n$contentMD5\n$contentType\n$httpDate\n$xamzHeadersToSign$resource";
 
 debug("StringToSign='" . $stringToSign . "'");
@@ -246,13 +254,12 @@ my $hmac = Digest::HMAC_SHA1->new($secretKey);
 $hmac->add($stringToSign);
 my $signature = encode_base64($hmac->digest, "");
 
-# Wed, 24 Aug 2016 15:16:38 GMT
 
 my @args = ();
 push @args, ("-H", "\"Date: $httpDate\"");
 push @args, ("-H", "\"Authorization: AWS $keyId:$signature\"");
 push @args, ("-H", "\"x-amz-acl: $acl\"") if (defined $acl);
-push @args, ("-L");
+#push @args, ("-L");
 push @args, ("-H", "\"content-type: $contentType\"") if (defined $contentType);
 push @args, ("-H", "\"Content-MD5: $contentMD5\"") if (length $contentMD5);
 push @args, ("-T", $fileToPut) if (defined $fileToPut);
@@ -274,6 +281,14 @@ if (defined $createBucket) {
 } elsif (defined $postBody) {
     if (length($postBody)>0) {
         push @args, ("-T", $postBody);
+    }
+} elsif (defined $proxy) {
+    if (length($proxy)>0) {
+        push @args, ("-x", $proxy);
+    }
+} elsif (defined $proxytunnel) {
+    if (length($proxytunnel)>0) {
+        push @args, ("-p", $proxytunnel);
     }
 }
 
@@ -384,8 +399,7 @@ sub calculateFileContentMD5 {
     return $b64;
 }
 
-sub getTime
-{
+sub getTime {
     my ($timein) = @_;
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($timein);
     $sec  = ($sec<10)?"0$sec":$sec;
@@ -405,3 +419,10 @@ sub getTime
     };
 }
 
+sub getCanonDateTime {
+    my $old_locale = POSIX::setlocale(POSIX::LC_TIME);
+    POSIX::setlocale(POSIX::LC_TIME, "C");
+    my $datetime = POSIX::strftime("%a, %d %b %Y %H:%M:%S +0000", gmtime);
+    POSIX::setlocale(POSIX::LC_TIME, $old_locale);
+    return $datetime
+}
