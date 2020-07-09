@@ -1,7 +1,7 @@
 This script is a wrapper around curl, a popular command line http client, that
 will calculate the authentication parameters for the request.
 
-To start, create an .s3curl file in your home directory.  This file will contain your
+To start, edit the file named aksk. This file will contain your
 AWS Access Key Id and AWS Secret Access Key pairs.
 
 For example:
@@ -20,7 +20,7 @@ For example:
     },
 );
 
-After creating the .s3curl file, you can try the following commands using s3curl
+After saving the aksk file, you can try the following commands using s3curl
 
 
 To get an object, you would run:
