@@ -59,6 +59,7 @@ my $copySourceObject;
 my $copySourceRange;
 my $postBody;
 my $calculateContentMD5 = 0;
+my $servicePath = "";
 my $proxy;
 my $proxytunnel;
 
@@ -101,6 +102,8 @@ GetOptions(
     'help' => \$help,
     'debug' => \$debug,
     'calculateContentMd5' => \$calculateContentMD5,
+    'servicePath:s' => \$servicePath,
+    'endpoint:s' => \@endpoints,
     'proxy=s' => \$proxy,
     'proxytunnel=s' => \$proxytunnel,
 );
@@ -120,6 +123,8 @@ Usage $0 --id friendly-name (or AWSAccessKeyId) [options] -- [curl-options] [URL
   --createBucket [<region>]   create-bucket with optional location constraint
   --head                      HEAD request
   --debug                     enable debug logging
+  --servicePath               service path which is not part of resource
+  --endpoint                  add endpoint to be excluded from signed string. Specify multiple parameters if you need add more than one.
   --proxy <proxyhost:port>    Proxy Host to utilize
   --proxytunnel <host:port>   Proxy Host to use CONNECT proxy tunnel with  
  common curl options:
@@ -200,9 +205,10 @@ for (my $i=0; $i<@ARGV; $i++) {
             "partNumber", "policy", "requestPayment", "response-cache-control",
             "response-content-disposition", "response-content-encoding", "response-content-language",
             "response-content-type", "response-expires", "torrent",
-            "uploadId", "uploads", "versionId", "versioning", "versions", "website", "lifecycle") {
+            "uploadId", "uploads", "versionId", "versioning", "versions", "website", "lifecycle", "restore") {
             if ($query =~ /(?:^|&)($attribute)=?([^&]+)?(?:&|$)/) {
                 my $kv_pair = sprintf("%s%s", $1, $2 ? sprintf("=%s", $2) : '');
+
                 push @attributes, uri_unescape($kv_pair);
             }
         }
@@ -222,7 +228,7 @@ for (my $i=0; $i<@ARGV; $i++) {
         if ($header =~ /^[Hh][Oo][Ss][Tt]:(.+)$/) {
             $host = $1;
         }
-        elsif ($header =~ /^([Xx]-[Aa][Mm][Zz]-.+): *(.+)$/) {
+        elsif ($header =~ /^([Xx]-[Aa][Mm][Zz]-[^:]+): *(.+)$/) {
             my $name = lc $1;
             my $value = $2;
             # merge with existing values
@@ -256,12 +262,13 @@ my $signature = encode_base64($hmac->digest, "");
 
 
 my @args = ();
-push @args, ("-H", "\"Date: $httpDate\"");
-push @args, ("-H", "\"Authorization: AWS $keyId:$signature\"");
-push @args, ("-H", "\"x-amz-acl: $acl\"") if (defined $acl);
+push @args, ("-v") if ($debug);
+push @args, ("-H", "Date: $httpDate") if ($httpDate);
+push @args, ("-H", "Authorization: AWS $keyId:$signature");
+push @args, ("-H", "x-amz-acl: $acl") if (defined $acl);
 #push @args, ("-L");
-push @args, ("-H", "\"content-type: $contentType\"") if (defined $contentType);
-push @args, ("-H", "\"Content-MD5: $contentMD5\"") if (length $contentMD5);
+push @args, ("-H", "content-type: $contentType") if (defined $contentType);
+push @args, ("-H", "Content-MD5: $contentMD5") if (length $contentMD5);
 push @args, ("-T", $fileToPut) if (defined $fileToPut);
 push @args, ("-X", "DELETE") if (defined $doDelete);
 push @args, ("-X", "POST") if(defined $postBody);
@@ -277,7 +284,7 @@ if (defined $createBucket) {
     # copy operation is a special kind of PUT operation where the resource to put
     # is specified in the header
     push @args, ("-X", "PUT");
-    push @args, ("-H", "\"x-amz-copy-source: $copySourceObject\"");
+    push @args, ("-H", "x-amz-copy-source: $copySourceObject");
 } elsif (defined $postBody) {
     if (length($postBody)>0) {
         push @args, ("-T", $postBody);
@@ -294,7 +301,7 @@ if (defined $createBucket) {
 
 push @args, @ARGV;
 
-debug("exec $CURL " . join (" ", @args));
+debug("exec $CURL " . join (" ", map { / / && qq/'$_'/ || $_ } @args));
 exec($CURL, @args)  or die "can't exec program: $!";
 
 sub debug {
@@ -305,6 +312,12 @@ sub debug {
 
 sub getResourceToSign {
     my ($host, $resourceToSignRef) = @_;
+	
+	if ($servicePath) {
+        $$resourceToSignRef =~ s/$servicePath//;
+        debug ("resourceToSignRef: $$resourceToSignRef");
+    }
+	
     for my $ep (@endpoints) {
         if ($host =~ /(\d+\.\d+\.\d+\.\d+)/) {
             return;
